@@ -1,0 +1,135 @@
+
+FUNCTION Kopia_Main GLOBAL
+    Folder.GetFiles Folder: $'''C:\\SAP-Contrado-Test\\Config''' FileFilter: $'''*.xlsx''' IncludeSubfolders: False FailOnAccessDenied: True SortBy1: Folder.SortBy.NoSort SortDescending1: False SortBy2: Folder.SortBy.NoSort SortDescending2: False SortBy3: Folder.SortBy.NoSort SortDescending3: False Files=> Files
+    IF Files.Count = 0 THEN
+        Display.ShowMessageDialog.ShowMessage Title: $'''Excel file missing''' Message: $'''No Contrado Excel report was found in the Config folder.
+
+To continue:
+
+1. Open in Contrado.
+2. Go to Reports > Consignment.
+3. Download the required report as an Excel (.xlsx) file.
+4. Save the file in:
+
+C:\\SAP-Contrado-Test\\Config
+
+5. Close the Excel file.
+6. Run this program again.''' Icon: Display.Icon.ErrorIcon Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: True ButtonPressed=> ButtonPressed
+        EXIT Code: 0
+    END
+    IF Files.Count > 1 THEN
+        Display.ShowMessageDialog.ShowMessage Title: $'''Too many Excel files''' Message: $'''More than one Excel file was found in the Config folder.
+
+To continue:
+
+1. Close all Excel files.
+2. Open:
+
+C:\\SAP-Contrado-Test\\Config
+
+3. Remove or move the old Excel reports.
+4. Leave exactly one .xlsx file in the Config folder.
+5. Run this program again.''' Icon: Display.Icon.None Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed4
+        EXIT Code: 0
+    END
+    Excel.LaunchExcel.LaunchAndOpenUnderExistingProcess Path: Files[0].FullName Visible: True ReadOnly: False UseMachineLocale: False Instance=> ExcelInstance
+    Excel.ReadFromExcel.ReadAllCells Instance: ExcelInstance GetCellContentsMode: Excel.GetCellContentsMode.TypedValues FirstLineIsHeader: True RangeValue=> ExcelData
+    Excel.CloseExcel.Close Instance: ExcelInstance
+    Folder.GetFiles Folder: $'''C:\\SAP-Contrado-Test\\SAP_Import''' FileFilter: $'''*pdf''' IncludeSubfolders: False FailOnAccessDenied: True SortBy1: Folder.SortBy.NoSort SortDescending1: False SortBy2: Folder.SortBy.NoSort SortDescending2: False SortBy3: Folder.SortBy.NoSort SortDescending3: False Files=> PDFFiles
+    SET TotalPDFCount TO PDFFiles.Count
+    SET SuccessCount TO 0
+    SET NoMappingCount TO 0
+    SET DuplicateCount TO 0
+    SET InvalidFileNameCount TO 0
+    IF PDFFiles.Count = 0 THEN
+        Display.ShowMessageDialog.ShowMessage Title: $'''Brak plików PDF''' Message: $'''No PDF files were found in the SAP_Import folder.
+
+Place the SAP PDF files in the folder and run the program again.''' Icon: Display.Icon.None Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: True ButtonPressed=> ButtonPressed2
+        EXIT Code: 0
+    END
+    LOOP FOREACH CurrentPDF IN PDFFiles
+        Text.ParseText.RegexParseForFirstOccurrence Text: CurrentPDF.NameWithoutExtension TextToFind: $'''^00[0-9]{8}''' StartingPosition: 0 IgnoreCase: False OccurrencePosition=> FileNamePatternPosition
+        IF FileNamePatternPosition = (-1) THEN
+            Display.ShowMessageDialog.ShowMessage Title: $'''Invalid PDF filename''' Message: $'''The PDF filename is not in the expected SAP format.
+
+File: %CurrentPDF.Name%
+
+The filename must begin with 00 followed by the 8-digit Consignment Number.
+
+The file will be moved to the Invalid_File_Name folder for review.''' Icon: Display.Icon.Warning Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: True ButtonPressed=> ButtonPressed6
+            File.Move Files: CurrentPDF Destination: $'''C:\\SAP-Contrado-Test\\Errors\\Invalid_File_Name''' IfFileExists: File.IfExists.Overwrite MovedFiles=> InvalidNameFiles
+            Variables.IncreaseVariable Value: InvalidFileNameCount IncrementValue: 1
+            NEXT LOOP
+        END
+        Text.GetSubtext.GetSubtext Text: CurrentPDF.NameWithoutExtension CharacterPosition: 2 NumberOfChars: 8 Subtext=> ConNoFromFile
+        Variables.FilterDataTable DataTable: ExcelData FilterParameters: { ^['RULE', 'COLUMN', 'OPERATOR', 'VALUE'], [$'''''', $'''Con No''', $'''Equal''', ConNoFromFile] } MatchCase: True FilteredDataTable=> FilteredRows
+        IF FilteredRows.RowsCount = 0 THEN
+            Display.ShowMessageDialog.ShowMessage Title: $'''Consignment not found in Contrado''' Message: $'''The consignment was not found in Contrado.
+
+PDF file: %CurrentPDF.Name%
+Con No: %ConNoFromFile%
+
+Check VIGO. If it exists in VIGO, upload the document to the VIGO Customer Paperwork folder.
+
+If it does not exist in either system, delete the document.''' Icon: Display.Icon.Warning Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: True ButtonPressed=> ButtonPressed3
+            File.Move Files: CurrentPDF Destination: $'''C:\\SAP-Contrado-Test\\Errors\\No_Mapping''' IfFileExists: File.IfExists.Overwrite MovedFiles=> MovedFiles
+            Variables.IncreaseVariable Value: NoMappingCount IncrementValue: 1
+            NEXT LOOP
+        END
+        SET ContradoReference TO FilteredRows[0]['Reference']
+        IF (File.IfFile.Exists File: $'''C:\\SAP-Contrado-Test\\Contrado_Output\\%ContradoReference%.pdf''') THEN
+            Display.ShowMessageDialog.ShowMessage Title: $'''Duplicate PDF''' Message: $'''A PDF with this Contrado reference already exists.
+
+Reference: %ContradoReference%
+SAP file: %CurrentPDF.Name%
+
+The new file has been moved to the Duplicate_File folder for review.''' Icon: Display.Icon.Warning Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: True ButtonPressed=> ButtonPressed3
+            File.Move Files: CurrentPDF Destination: $'''C:\\SAP-Contrado-Test\\Errors\\Duplicate_File''' IfFileExists: File.IfExists.Overwrite MovedFiles=> DuplicateFiles
+            Variables.IncreaseVariable Value: DuplicateCount IncrementValue: 1
+            NEXT LOOP
+        END
+        File.RenameFiles.Rename Files: CurrentPDF NewName: FilteredRows[0]['Reference'] KeepExtension: True IfFileExists: File.IfExists.DoNothing RenamedFiles=> RenamedFiles
+        File.Move Files: RenamedFiles Destination: $'''C:\\SAP-Contrado-Test\\Contrado_Output''' IfFileExists: File.IfExists.DoNothing MovedFiles=> OutputFiles
+        Variables.IncreaseVariable Value: SuccessCount IncrementValue: 1
+    END
+    DateTime.GetCurrentDateTime.Local DateTimeFormat: DateTime.DateTimeFormat.DateAndTime CurrentDateTime=> CurrentDateTime
+    Text.ConvertDateTimeToText.FromCustomDateTime DateTime: CurrentDateTime CustomFormat: $'''dd.MM.yyyy_HH-mm-ss''' Result=> ArchiveTimestamp
+    File.Move Files: Files[0] Destination: $'''C:\\SAP-Contrado-Test\\Archive\\Excel''' IfFileExists: File.IfExists.Overwrite MovedFiles=> ArchivedExcelFiles
+    File.RenameFiles.Rename Files: ArchivedExcelFiles[0] NewName: $'''Contrado_Report_%ArchiveTimestamp%''' KeepExtension: True IfFileExists: File.IfExists.Overwrite RenamedFiles=> RenamedExcelFile
+    SET ReportText TO $'''SAP–Contrado processing has been completed.
+
+PDF files found: %TotalPDFCount%
+Successfully renamed and moved: %SuccessCount%
+Not found in Contrado: %NoMappingCount%
+Duplicates: %DuplicateCount%
+Invalid PDF filenames: %InvalidFileNameCount%
+
+Please review the No_Mapping, Duplicate_File and Invalid_File_Name folders if any exceptions were reported.'''
+    @@statistics_TextBlock: '1'
+@@statistics_Action_Submit: '1'
+Display.ShowCustomDialog CardTemplateJson: '''{
+  \"type\": \"AdaptiveCard\",
+  \"version\": \"1.4\",
+  \"id\": \"AdaptiveCard\",
+  \"body\": [
+    {
+      \"type\": \"TextBlock\",
+      \"id\": \"Text block\",
+      \"size\": \"medium\",
+      \"text\": \"${Text_block_Text}\",
+      \"wrap\": true,
+      \"maxWidth\": 600,
+      \"spacing\": \"none\"
+    }
+  ],
+  \"actions\": [
+    {
+      \"type\": \"Action.Submit\",
+      \"id\": \"Submit\",
+      \"title\": \"Ok\"
+    }
+  ],
+  \"minHeight\": \"420px\",
+  \"FormTitle\": \"${AdaptiveCard_FormTitle}\"
+}''' CustomFormData=> CustomFormData ButtonPressed=> ButtonPressed5 @AdaptiveCard_FormTitle: $'''SAP–Contrado processing completed''' @Text_block_Text: ReportText
+END FUNCTION
