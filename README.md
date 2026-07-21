@@ -15,13 +15,13 @@ The workflow was created to reduce manual handling and prevent documents from be
 
 ## Features
 
-- Requires exactly one Contrado `.xlsx` report in `Config`.
+- Requires exactly one Contrado `.xls` report in `Config`.
 - Reads the Excel report into a Power Automate data table.
 - Collects all PDFs from `SAP_Import`.
 - Validates SAP filenames using `^00[0-9]{8}`.
 - Extracts the eight-digit consignment number.
-- Matches it against the Excel column `Con No`.
-- Renames matched PDFs using the Excel column `Reference`.
+- Matches it against the Excel column `Consignment No.`.
+- Renames matched PDFs using the Excel column `Palletline Id`.
 - Moves successful files to `Contrado_Output`.
 - Moves unmatched consignments to `Errors/No_Mapping`.
 - Moves duplicate output references to `Errors/Duplicate_File`.
@@ -54,8 +54,8 @@ The workflow extracts:
 ## Expected Excel columns
 
 ```text
-Con No
-Reference
+Consigment No
+Palletline Id
 ```
 
 ## Test folder structure
